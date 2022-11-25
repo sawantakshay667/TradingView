@@ -1,0 +1,512 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © World_of_Indicators
+
+
+//@version=5
+indicator(title='Mod PRAVIN TAMBE Buy Sell Indicator', overlay=true)
+
+src = close
+
+prd = input.int(defval=10, title='Pivot Period', minval=4, maxval=30, group='Setup')
+ppsrc = input.string(defval='High/Low', title='Source', options=['High/Low', 'Close/Open'], group='Setup')
+maxnumpp = input.int(defval=20, title=' Max Pivot', minval=5, maxval=100, group='Setup')
+ChannelW = input.int(defval=10, title='Max Channel Width %', minval=1, group='Setup')
+maxnumsr = input.int(defval=5, title=' Number of S&R', minval=1, maxval=10, group='Setup')
+min_strength = input.int(defval=2, title=' Minimum Strength', minval=1, maxval=10, group='Setup')
+labelloc = input.int(defval=20, title='Label Location', group='Colors', tooltip='Positive numbers reference future bars, negative numbers reference histical bars')
+linestyle = input.string(defval='Dotted', title='Line Style', options=['Solid', 'Dotted', 'Dashed'], group='Colors')
+linewidth = input.int(defval=2, title='Line Width', minval=1, maxval=4, group='Colors')
+resistancecolor = input.color(defval=color.red, title='Resistance Color', group='Colors')
+supportcolor = input.color(defval=color.lime, title='Support Color', group='Colors')
+showpp = input(false, title='Show High Low Points')
+
+float src1 = ppsrc == 'High/Low' ? high : math.max(close, open)
+float src2 = ppsrc == 'High/Low' ? low : math.min(close, open)
+float ph = ta.pivothigh(src1, prd, prd)
+float pl = ta.pivotlow(src2, prd, prd)
+
+plotshape(ph and showpp, text='H', style=shape.labeldown, color=na, textcolor=color.new(color.red, 0), location=location.abovebar, offset=-prd)
+plotshape(pl and showpp, text='L', style=shape.labelup, color=na, textcolor=color.new(color.lime, 0), location=location.belowbar, offset=-prd)
+
+Lstyle = linestyle == 'Dashed' ? line.style_dashed : linestyle == 'Solid' ? line.style_solid : line.style_dotted
+
+//calculate maximum S/R channel zone width
+prdhighest = ta.highest(300)
+prdlowest = ta.lowest(300)
+cwidth = (prdhighest - prdlowest) * ChannelW / 100
+
+var pivotvals = array.new_float(0)
+
+if ph or pl
+    array.unshift(pivotvals, ph ? ph : pl)
+    if array.size(pivotvals) > maxnumpp  // limit the array size
+        array.pop(pivotvals)
+
+get_sr_vals(ind) =>
+    float lo = array.get(pivotvals, ind)
+    float hi = lo
+    int numpp = 0
+    for y = 0 to array.size(pivotvals) - 1 by 1
+        float cpp = array.get(pivotvals, y)
+        float wdth = cpp <= lo ? hi - cpp : cpp - lo
+        if wdth <= cwidth  // fits the max channel width?
+            lo := cpp <= lo ? cpp : lo
+            hi := cpp > lo ? cpp : hi
+            numpp += 1
+            numpp
+    [hi, lo, numpp]
+
+var sr_up_level = array.new_float(0)
+var sr_dn_level = array.new_float(0)
+sr_strength = array.new_float(0)
+
+find_loc(strength) =>
+    ret = array.size(sr_strength)
+    for i = ret > 0 ? array.size(sr_strength) - 1 : na to 0 by 1
+        if strength <= array.get(sr_strength, i)
+            break
+        ret := i
+        ret
+    ret
+
+check_sr(hi, lo, strength) =>
+    ret = true
+    for i = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        //included?
+        if array.get(sr_up_level, i) >= lo and array.get(sr_up_level, i) <= hi or array.get(sr_dn_level, i) >= lo and array.get(sr_dn_level, i) <= hi
+            if strength >= array.get(sr_strength, i)
+                array.remove(sr_strength, i)
+                array.remove(sr_up_level, i)
+                array.remove(sr_dn_level, i)
+                ret
+            else
+                ret := false
+                ret
+            break
+    ret
+
+var sr_lines = array.new_line(11, na)
+var sr_labels = array.new_label(11, na)
+
+for x = 1 to 10 by 1
+    rate = 100 * (label.get_y(array.get(sr_labels, x)) - close) / close
+    label.set_text(array.get(sr_labels, x), text=str.tostring(label.get_y(array.get(sr_labels, x))) + '(' + str.tostring(rate, '#.##') + '%)')
+    label.set_x(array.get(sr_labels, x), x=bar_index + labelloc)
+    label.set_color(array.get(sr_labels, x), color=label.get_y(array.get(sr_labels, x)) >= close ? color.red : color.lime)
+    label.set_textcolor(array.get(sr_labels, x), textcolor=label.get_y(array.get(sr_labels, x)) >= close ? color.white : color.black)
+    label.set_style(array.get(sr_labels, x), style=label.get_y(array.get(sr_labels, x)) >= close ? label.style_label_down : label.style_label_up)
+    line.set_color(array.get(sr_lines, x), color=line.get_y1(array.get(sr_lines, x)) >= close ? resistancecolor : supportcolor)
+
+if ph or pl
+    //because of new calculation, remove old S/R levels
+    array.clear(sr_up_level)
+    array.clear(sr_dn_level)
+    array.clear(sr_strength)
+    //find S/R zones
+    for x = 0 to array.size(pivotvals) - 1 by 1
+        [hi, lo, strength] = get_sr_vals(x)
+        if check_sr(hi, lo, strength)
+            loc = find_loc(strength)
+            // if strength is in first maxnumsr sr then insert it to the arrays 
+            if loc < maxnumsr and strength >= min_strength
+                array.insert(sr_strength, loc, strength)
+                array.insert(sr_up_level, loc, hi)
+                array.insert(sr_dn_level, loc, lo)
+                // keep size of the arrays = 5
+                if array.size(sr_strength) > maxnumsr
+                    array.pop(sr_strength)
+                    array.pop(sr_up_level)
+                    array.pop(sr_dn_level)
+
+    for x = 1 to 10 by 1
+        line.delete(array.get(sr_lines, x))
+        label.delete(array.get(sr_labels, x))
+
+    for x = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        float mid = math.round_to_mintick((array.get(sr_up_level, x) + array.get(sr_dn_level, x)) / 2)
+        rate = 100 * (mid - close) / close
+        array.set(sr_labels, x + 1, label.new(x=bar_index + labelloc, y=mid, text=str.tostring(mid) + '(' + str.tostring(rate, '#.##') + '%)', color=mid >= close ? color.red : color.lime, textcolor=mid >= close ? color.white : color.black, style=mid >= close ? label.style_label_down : label.style_label_up))
+
+        array.set(sr_lines, x + 1, line.new(x1=bar_index, y1=mid, x2=bar_index - 1, y2=mid, extend=extend.both, color=mid >= close ? resistancecolor : supportcolor, style=Lstyle, width=linewidth))
+
+f_crossed_over() =>
+    ret = false
+    for x = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        float mid = math.round_to_mintick((array.get(sr_up_level, x) + array.get(sr_dn_level, x)) / 2)
+        if close[1] <= mid and close > mid
+            ret := true
+            ret
+    ret
+
+f_crossed_under() =>
+    ret = false
+    for x = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        float mid = math.round_to_mintick((array.get(sr_up_level, x) + array.get(sr_dn_level, x)) / 2)
+        if close[1] >= mid and close < mid
+            ret := true
+            ret
+    ret
+
+alertcondition(f_crossed_over(), title='Resistance Broken', message='Resistance Broken')
+alertcondition(f_crossed_under(), title='Support Broken', message='Support Broken')
+
+length = input.int(10, step=5, minval=5)
+showZigzag = input(false)
+showPivots = input(true)
+showStats = input(true)
+bullishColor = input(color.green)
+bullTrapColor = input(color.orange)
+bearishColor = input(color.red)
+bearTrapColor = input(color.lime)
+textColor = input(color.black)
+
+MaxRiskPerReward = input.int(30, step=5, minval=5, maxval=100)
+DisplayRiskPerReward = input(true)
+var zigzagvalues = array.new_float(0)
+var zigzagindexes = array.new_int(0)
+var zigzagdir = array.new_int(0)
+
+var doubleTopBottomValues = array.new_float(3)
+var doubleTopBottomIndexes = array.new_int(3)
+var doubleTopBottomDir = array.new_int(3)
+
+int max_array_size = 10
+max_bars_back(high, 1000)
+max_bars_back(low, 1000)
+
+var lineArray = array.new_line(0)
+var labelArray = array.new_label(0)
+pivots(length) =>
+    float ph = ta.highestbars(high, length) == 0 ? high : na
+    float pl = ta.lowestbars(low, length) == 0 ? low : na
+    dir = 0
+    iff_1 = pl and na(ph) ? -1 : dir[1]
+    dir := ph and na(pl) ? 1 : iff_1
+    [dir, ph, pl]
+
+add_to_array(value, index, dir) =>
+    mult = array.size(zigzagvalues) < 2 ? 1 : dir * value > dir * array.get(zigzagvalues, 1) ? 2 : 1
+    array.unshift(zigzagindexes, index)
+    array.unshift(zigzagvalues, value)
+    array.unshift(zigzagdir, dir * mult)
+    if array.size(zigzagindexes) > max_array_size
+        array.pop(zigzagindexes)
+        array.pop(zigzagvalues)
+        array.pop(zigzagdir)
+
+add_to_zigzag(dir, dirchanged, ph, pl, index) =>
+    value = dir == 1 ? ph : pl
+    if array.size(zigzagvalues) == 0 or dirchanged
+        add_to_array(value, index, dir)
+    else if dir == 1 and value > array.get(zigzagvalues, 0) or dir == -1 and value < array.get(zigzagvalues, 0)
+        array.shift(zigzagvalues)
+        array.shift(zigzagindexes)
+        array.shift(zigzagdir)
+        add_to_array(value, index, dir)
+
+zigzag(length) =>
+    [dir, ph, pl] = pivots(length)
+    dirchanged = ta.change(dir)
+    if ph or pl
+        add_to_zigzag(dir, dirchanged, ph, pl, bar_index)
+
+calculate_double_pattern() =>
+    doubleTop = false
+    doubleTopConfirmation = 0
+    doubleBottom = false
+    doubleBottomConfirmation = 0
+    if array.size(zigzagvalues) >= 4
+        index = array.get(zigzagindexes, 1)
+        value = array.get(zigzagvalues, 1)
+        highLow = array.get(zigzagdir, 1)
+
+        lindex = array.get(zigzagindexes, 2)
+        lvalue = array.get(zigzagvalues, 2)
+        lhighLow = array.get(zigzagdir, 2)
+
+        llindex = array.get(zigzagindexes, 3)
+        llvalue = array.get(zigzagvalues, 3)
+        llhighLow = array.get(zigzagdir, 3)
+        risk = math.abs(value - llvalue)
+        reward = math.abs(value - lvalue)
+        riskPerReward = risk * 100 / (risk + reward)
+
+        if highLow == 1 and llhighLow == 2 and lhighLow < 0 and riskPerReward < MaxRiskPerReward
+            doubleTop := true
+            doubleTop
+        if highLow == -1 and llhighLow == -2 and lhighLow > 0 and riskPerReward < MaxRiskPerReward
+            doubleBottom := true
+            doubleBottom
+
+        if doubleTop or doubleBottom
+            array.set(doubleTopBottomValues, 0, value)
+            array.set(doubleTopBottomValues, 1, lvalue)
+            array.set(doubleTopBottomValues, 2, llvalue)
+
+            array.set(doubleTopBottomIndexes, 0, index)
+            array.set(doubleTopBottomIndexes, 1, lindex)
+            array.set(doubleTopBottomIndexes, 2, llindex)
+
+            array.set(doubleTopBottomDir, 0, highLow)
+            array.set(doubleTopBottomDir, 1, lhighLow)
+            array.set(doubleTopBottomDir, 2, llhighLow)
+
+    [doubleTop, doubleBottom]
+
+get_crossover_info(doubleTop, doubleBottom) =>
+    index = array.get(doubleTopBottomIndexes, 0)
+    value = array.get(doubleTopBottomValues, 0)
+    highLow = array.get(doubleTopBottomDir, 0)
+
+    lindex = array.get(doubleTopBottomIndexes, 1)
+    lvalue = array.get(doubleTopBottomValues, 1)
+    lhighLow = array.get(doubleTopBottomDir, 1)
+
+    llindex = array.get(doubleTopBottomIndexes, 2)
+    llvalue = array.get(doubleTopBottomValues, 2)
+    llhighLow = array.get(doubleTopBottomDir, 2)
+
+    latestDoubleTop = false
+    latestDoubleBottom = false
+    latestDoubleTop := doubleTop ? true : doubleBottom ? false : latestDoubleTop[1]
+    latestDoubleBottom := doubleBottom ? true : doubleTop ? false : latestDoubleBottom[1]
+
+    doubleTopConfirmation = 0
+    doubleBottomConfirmation = 0
+    doubleTopConfirmation := latestDoubleTop ? ta.crossunder(low, lvalue) ? 1 : ta.crossover(high, llvalue) ? -1 : 0 : 0
+    doubleBottomConfirmation := latestDoubleBottom ? ta.crossover(high, lvalue) ? 1 : ta.crossunder(low, llvalue) ? -1 : 0 : 0
+    [doubleTopConfirmation, doubleBottomConfirmation]
+
+draw_double_pattern(doubleTop, doubleBottom, doubleTopConfirmation, doubleBottomConfirmation) =>
+    index = array.get(doubleTopBottomIndexes, 0)
+    value = array.get(doubleTopBottomValues, 0)
+    highLow = array.get(doubleTopBottomDir, 0)
+
+    lindex = array.get(doubleTopBottomIndexes, 1)
+    lvalue = array.get(doubleTopBottomValues, 1)
+    lhighLow = array.get(doubleTopBottomDir, 1)
+
+    llindex = array.get(doubleTopBottomIndexes, 2)
+    llvalue = array.get(doubleTopBottomValues, 2)
+    llhighLow = array.get(doubleTopBottomDir, 2)
+
+    isBullish = true
+    isBullish := doubleTop or doubleBottom ? doubleTop : isBullish[1]
+
+    risk = math.abs(value - llvalue)
+    reward = math.abs(value - lvalue)
+    riskPerReward = risk * 100 / (risk + reward)
+
+    base = line.new(x1=index, y1=value, x2=llindex, y2=llvalue, color=doubleTop ? bearishColor : bullishColor, width=2, style=line.style_solid)
+    l1 = line.new(x1=index, y1=value, x2=lindex, y2=lvalue, color=doubleTop ? bearishColor : bullishColor, width=2, style=line.style_dotted)
+    l2 = line.new(x1=lindex, y1=lvalue, x2=llindex, y2=llvalue, color=doubleTop ? bearishColor : bullishColor, width=2, style=line.style_dotted)
+    labelText = (doubleTop ? 'Double Top' : 'Double Bottom') + (DisplayRiskPerReward ? ' RR - ' + str.tostring(riskPerReward) : '')
+
+    baseLabel = label.new(x=index, y=value, text=labelText, yloc=doubleTop ? yloc.abovebar : yloc.belowbar, color=doubleTop ? bearishColor : bullishColor, style=doubleTop ? label.style_label_down : label.style_label_up, textcolor=textColor, size=size.normal)
+
+    if not(doubleTop or doubleBottom)
+        line.delete(base)
+        line.delete(l1)
+        line.delete(l2)
+        label.delete(baseLabel)
+
+    var doubleTopCount = 0
+    var doubleBottomCount = 0
+    doubleTopCount := doubleTop ? nz(doubleTopCount[1], 0) + 1 : nz(doubleTopCount[1], 0)
+    doubleBottomCount := doubleBottom ? nz(doubleBottomCount[1], 0) + 1 : nz(doubleBottomCount[1], 0)
+
+    if line.get_x2(base) == line.get_x2(base[1])
+        line.delete(base[1])
+        line.delete(l1[1])
+        line.delete(l2[1])
+        label.delete(baseLabel[1])
+        doubleTopCount := doubleTop ? doubleTopCount - 1 : doubleTopCount
+        doubleBottomCount := doubleBottom ? doubleBottomCount - 1 : doubleBottomCount
+        doubleBottomCount
+
+
+    if barstate.islast
+        lres = line.new(x1=bar_index, y1=lvalue, x2=lindex, y2=lvalue, color=isBullish ? bearishColor : bullishColor, width=2, style=line.style_dashed, extend=extend.left)
+        lsup = line.new(x1=bar_index, y1=llvalue, x2=llindex, y2=llvalue, color=isBullish ? bullishColor : bearishColor, width=2, style=line.style_dashed, extend=extend.left)
+        lsup
+
+
+    doubleTopConfirmationCount = doubleTopConfirmation > 0 ? 1 : 0
+    doubleBottomConfirmationCount = doubleBottomConfirmation > 0 ? 1 : 0
+    doubleTopInvalidationCount = doubleTopConfirmation < 0 ? 1 : 0
+    doubleBottomInvalidationCount = doubleBottomConfirmation < 0 ? 1 : 0
+
+    if doubleTopConfirmation != 0 or doubleBottomConfirmation != 0
+        if doubleTopConfirmation > 0 or doubleBottomConfirmation > 0
+            lresbreak = line.new(x1=lindex, y1=lvalue, x2=bar_index, y2=lvalue, color=isBullish ? bearishColor : bullishColor, width=2, style=line.style_dashed)
+            if line.get_x1(lresbreak[1]) == line.get_x1(lresbreak)
+                doubleTopConfirmationCount := 0
+                doubleBottomConfirmationCount := 0
+                doubleTopInvalidationCount := 0
+                doubleBottomInvalidationCount := 0
+                line.delete(lresbreak)
+                lresbreak := lresbreak[1]
+                lresbreak
+        else if doubleTopConfirmation < 0 or doubleBottomConfirmation < 0
+            lsupbreak = line.new(x1=llindex, y1=llvalue, x2=bar_index, y2=llvalue, color=isBullish ? bullishColor : bearishColor, width=2, style=line.style_dashed)
+            if line.get_x1(lsupbreak[1]) == line.get_x1(lsupbreak)
+                doubleTopInvalidationCount := 0
+                doubleBottomInvalidationCount := 0
+                doubleTopConfirmationCount := 0
+                doubleBottomConfirmationCount := 0
+                line.delete(lsupbreak)
+                lsupbreak := lsupbreak[1]
+                lsupbreak
+    doubleTopConfirmationCount := nz(doubleTopConfirmationCount[1], 0) + doubleTopConfirmationCount
+    doubleBottomConfirmationCount := nz(doubleBottomConfirmationCount[1], 0) + doubleBottomConfirmationCount
+    doubleTopInvalidationCount := nz(doubleTopInvalidationCount[1], 0) + doubleTopInvalidationCount
+    doubleBottomInvalidationCount := nz(doubleBottomInvalidationCount[1], 0) + doubleBottomInvalidationCount
+    [doubleTopCount, doubleBottomCount, doubleTopConfirmationCount, doubleBottomConfirmationCount, doubleTopInvalidationCount, doubleBottomInvalidationCount]
+
+zigzag(length)
+
+[doubleTop, doubleBottom] = calculate_double_pattern()
+[doubleTopConfirmation, doubleBottomConfirmation] = get_crossover_info(doubleTop, doubleBottom)
+[doubleTopCount, doubleBottomCount, doubleTopConfirmationCount, doubleBottomConfirmationCount, doubleTopInvalidationCount, doubleBottomInvalidationCount] = draw_double_pattern(doubleTop, doubleBottom, doubleTopConfirmation, doubleBottomConfirmation)
+
+var stats = table.new(position=position.top_right, columns=5, rows=5, border_width=2)
+if barstate.islast and showStats
+    colorWorst = color.rgb(255, 153, 51)
+    colorBest = color.rgb(51, 204, 51)
+    colorBad = color.rgb(255, 204, 153)
+    colorGood = color.rgb(204, 255, 204)
+    colorNeutral = color.rgb(255, 255, 204)
+
+    dtConfirmationPercent = doubleTopConfirmationCount + doubleTopInvalidationCount == 0 ? 0.5 : doubleTopConfirmationCount / (doubleTopConfirmationCount + doubleTopInvalidationCount)
+    dbConfirmationPercent = doubleBottomConfirmationCount + doubleBottomInvalidationCount == 0 ? 0.5 : doubleBottomConfirmationCount / (doubleBottomConfirmationCount + doubleBottomInvalidationCount)
+
+    dtColor = dtConfirmationPercent >= 0.8 ? colorBest : dtConfirmationPercent >= 0.6 ? colorGood : dtConfirmationPercent >= 0.4 ? colorNeutral : dtConfirmationPercent >= 0.2 ? colorBad : colorWorst
+    dbColor = dbConfirmationPercent >= 0.8 ? colorBest : dbConfirmationPercent >= 0.6 ? colorGood : dbConfirmationPercent >= 0.4 ? colorNeutral : dbConfirmationPercent >= 0.2 ? colorBad : colorWorst
+    table.cell(table_id=stats, column=0, row=0, text='', bgcolor=color.black, text_color=color.white)
+    table.cell(table_id=stats, column=0, row=1, text='Double Top', bgcolor=color.black, text_color=color.white)
+    table.cell(table_id=stats, column=0, row=2, text='Double Bottom', bgcolor=color.black, text_color=color.white)
+
+    table.cell(table_id=stats, column=1, row=0, text='Count', bgcolor=color.black, text_color=color.white)
+    table.cell(table_id=stats, column=2, row=0, text='Confirmation', bgcolor=color.black, text_color=color.white)
+    table.cell(table_id=stats, column=3, row=0, text='Invalidation', bgcolor=color.black, text_color=color.white)
+
+    table.cell(table_id=stats, column=1, row=1, text=str.tostring(doubleTopCount), bgcolor=dtColor)
+    table.cell(table_id=stats, column=1, row=2, text=str.tostring(doubleBottomCount), bgcolor=dbColor)
+
+    table.cell(table_id=stats, column=2, row=1, text=str.tostring(doubleTopConfirmationCount), bgcolor=dtColor)
+    table.cell(table_id=stats, column=3, row=1, text=str.tostring(doubleTopInvalidationCount), bgcolor=dtColor)
+
+    table.cell(table_id=stats, column=2, row=2, text=str.tostring(doubleBottomConfirmationCount), bgcolor=dbColor)
+    table.cell(table_id=stats, column=3, row=2, text=str.tostring(doubleBottomInvalidationCount), bgcolor=dbColor)
+
+if barstate.islast and array.size(zigzagindexes) > 1
+    lastHigh = 0.0
+    lastLow = 0.0
+    for x = 0 to array.size(zigzagindexes) - 1 by 1
+        i = array.size(zigzagindexes) - 1 - x
+        index = array.get(zigzagindexes, i)
+        value = array.get(zigzagvalues, i)
+        highLow = array.get(zigzagdir, i)
+        index_offset = bar_index - index
+
+        labelText = highLow == 2 ? 'HH' : highLow == 1 ? 'LH' : highLow == -1 ? 'HL' : 'LL'
+        labelColor = highLow == 2 ? bullishColor : highLow == 1 ? bullTrapColor : highLow == -1 ? bearTrapColor : bearishColor
+        labelStyle = highLow > 0 ? label.style_label_down : label.style_label_up
+        // labelLocation = highLow > 0? yloc.abovebar : yloc.belowbar
+        labelLocation = yloc.price
+        if showPivots
+            l = label.new(x=index, y=value, text=labelText, xloc=xloc.bar_index, yloc=labelLocation, style=labelStyle, size=size.tiny, color=labelColor, textcolor=textColor)
+            array.unshift(labelArray, l)
+            if array.size(labelArray) > 100
+                label.delete(array.pop(labelArray))
+        if i < array.size(zigzagindexes) - 1 and showZigzag
+            indexLast = array.get(zigzagindexes, i + 1)
+            valueLast = array.get(zigzagvalues, i + 1)
+            l = line.new(x1=index, y1=value, x2=indexLast, y2=valueLast, color=labelColor, width=2, style=line.style_solid)
+
+            array.unshift(lineArray, l)
+            if array.size(lineArray) > 100
+                line.delete(array.pop(lineArray))
+alertcondition(doubleBottom, 'Double Bottom', 'Probable double bottom observed for {{ticker}} on {{interval}} timeframe')
+alertcondition(doubleBottomConfirmation > 0, 'Double Bottom Confirmation', 'Double bottom confirmation observed for {{ticker}} on {{interval}} timeframe')
+alertcondition(doubleBottomConfirmation < 0, 'Double Bottom Invalidation', 'Double bottom invalidation observed for {{ticker}} on {{interval}} timeframe')
+alertcondition(doubleTop, 'Double Top', 'Probable double top observed for {{ticker}} on {{interval}} timeframe')
+alertcondition(doubleTopConfirmation > 0, 'Double Top Confirmation', 'Double top confirmation observed for {{ticker}} on {{interval}} timeframe')
+alertcondition(doubleTopConfirmation < 0, 'Double Top Invalidation', 'Double top invalidation observed for {{ticker}} on {{interval}} timeframe')
+
+
+per = input.int(defval=100, minval=1, title='Sampling Period')
+
+// Range Multiplier
+
+mult = input.float(defval=2.0, minval=0.1, title='Range Multiplier')
+
+// Smooth Average Range
+
+smoothrng(x, t, m) =>
+    wper = t * 2 - 1
+    avrng = ta.ema(math.abs(x - x[1]), t)
+    smoothrng = ta.ema(avrng, wper) * m
+    smoothrng
+smrng = smoothrng(src, per, mult)
+
+// Range Filter
+
+rngfilt(x, r) =>
+    rngfilt = x
+    rngfilt := x > nz(rngfilt[1]) ? x - r < nz(rngfilt[1]) ? nz(rngfilt[1]) : x - r : x + r > nz(rngfilt[1]) ? nz(rngfilt[1]) : x + r
+    rngfilt
+filt = rngfilt(src, smrng)
+
+// Filter Direction
+
+upward = 0.0
+upward := filt > filt[1] ? nz(upward[1]) + 1 : filt < filt[1] ? 0 : nz(upward[1])
+downward = 0.0
+downward := filt < filt[1] ? nz(downward[1]) + 1 : filt > filt[1] ? 0 : nz(downward[1])
+
+// Target Bands
+
+hband = filt + smrng
+lband = filt - smrng
+
+// Colors
+
+filtcolor = upward > 0 ? color.lime : downward > 0 ? color.red : color.orange
+barcolor = src > filt and src > src[1] and upward > 0 ? color.lime : src > filt and src < src[1] and upward > 0 ? color.green : src < filt and src < src[1] and downward > 0 ? color.red : src < filt and src > src[1] and downward > 0 ? color.maroon : color.orange
+
+filtplot = plot(filt, color=filtcolor, linewidth=3, title='Range Filter')
+
+// Target
+
+hbandplot = plot(hband, color=color.new(color.aqua, 100), title='High Target')
+lbandplot = plot(lband, color=color.new(color.fuchsia, 100), title='Low Target')
+
+// Fills
+
+fill(hbandplot, filtplot, color=color.new(color.aqua, 90), title='High Target Range')
+fill(lbandplot, filtplot, color=color.new(color.fuchsia, 90), title='Low Target Range')
+
+// Bar Color
+
+barcolor(barcolor)
+
+// Break Outs
+
+longCond = bool(na)
+shortCond = bool(na)
+longCond := src > filt and src > src[1] and upward > 0 or src > filt and src < src[1] and upward > 0
+shortCond := src < filt and src < src[1] and downward > 0 or src < filt and src > src[1] and downward > 0
+
+CondIni = 0
+CondIni := longCond ? 1 : shortCond ? -1 : CondIni[1]
+longCondition = longCond and CondIni[1] == -1
+shortCondition = shortCond and CondIni[1] == 1
+
+//Alerts
+
+plotshape(longCondition, title='Buy Signal', text='विकत घ्या Buy Ker Lo', textcolor=color.new(color.white, 0), style=shape.labelup, size=size.normal, location=location.belowbar, color=color.new(color.green, 0))
+plotshape(shortCondition, title='Sell Signal', text='विकून टाका Sell Ker Do', textcolor=color.new(color.white, 0), style=shape.labeldown, size=size.normal, location=location.abovebar, color=color.new(color.red, 0))
+
+alertcondition(longCondition, title='Buy Alert', message='विकत घ्या Buy Ker Lo')
+alertcondition(shortCondition, title='Sell Alert', message='विकून टाका Sell Ker Do')

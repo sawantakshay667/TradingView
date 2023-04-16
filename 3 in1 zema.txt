@@ -1,0 +1,47 @@
+/ This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © sawantakshay667
+
+//@version=1
+
+
+study(title="Zero Lag EMA v2", shorttitle="ZEMA", overlay = true)
+Period1 = input(title="Period1", type=integer, defval=10, minval=1)
+EMA1= ema(close,Period1)
+EMA2= ema(EMA1,Period1)
+Difference1= EMA1 - EMA2
+ZeroLagEMA1= EMA1 + Difference1
+
+// plot(ZeroLagEMA1, color=green, linewidth=2)
+
+
+Period2 = input(title="Period2", type=integer, defval=30, minval=1)
+EMA3= ema(close,Period2)
+EMA4= ema(EMA3,Period2)
+Difference2= EMA3 - EMA4
+ZeroLagEMA2= EMA3 + Difference2
+
+// plot(ZeroLagEMA2, color=orange, linewidth=2)
+
+Period3 = input(title="Period3", type=integer, defval=200, minval=1)
+EMA5= ema(close,Period3)
+EMA6= ema(EMA5,Period3)
+Difference3= EMA5 - EMA6
+ZeroLagEMA3= EMA5 + Difference3
+
+// plot(ZeroLagEMA3, color=orange, linewidth=2)
+
+viewCrossFlag = input(false, title='View crossover')
+
+plot(ZeroLagEMA3, title="ZeroLagEMA3", style=circles, linewidth=2, color=ZeroLagEMA1>=ZeroLagEMA2 ? #CCCCCC : #222222)
+plot(ZeroLagEMA1, title="ZeroLagEMA1", style=line, linewidth=2, color=olive, transp=0)
+plot(ZeroLagEMA2, title="ZeroLagEMA2", style=line, linewidth=2, color=maroon, transp=0)
+
+plotchar(viewCrossFlag and crossunder(ZeroLagEMA2, ZeroLagEMA3), char='✜', color=red, location=location.top, transp=0, size=size.tiny)
+plotchar(viewCrossFlag and crossover(ZeroLagEMA2, ZeroLagEMA3), char='✜', color=green, location=location.bottom, transp=0, size=size.tiny)
+
+alertcondition(crossunder(ZeroLagEMA1, ZeroLagEMA2), title='MA cross sell', message='We have a MA sell signal!')
+alertcondition(crossover(ZeroLagEMA1, ZeroLagEMA2), title='MA cross buy', message='We have a MA buy signal!')
+
+// Remember to use SMA 50 and SMA 200 on daily frame to get valid Golden and Death cross signals.
+alertcondition(crossunder(ZeroLagEMA2, ZeroLagEMA3), title='Death cross', message='Death cross. We have a MA slow crossing under the Turtle. Generally a strong sell signal!')
+alertcondition(crossover(ZeroLagEMA2, ZeroLagEMA3), title='Golden cross', message='Golden cross. We have a MA slow crossing over the Turtle. Generally a strong buy signal!')

@@ -1,4 +1,4 @@
-/ This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © sawantakshay667
 
 //@version=1
@@ -32,7 +32,7 @@ ZeroLagEMA3= EMA5 + Difference3
 
 viewCrossFlag = input(false, title='View crossover')
 
-plot(ZeroLagEMA3, title="ZeroLagEMA3", style=circles, linewidth=2, color=ZeroLagEMA1>=ZeroLagEMA2 ? #CCCCCC : #222222)
+plot(ZeroLagEMA3, title="ZeroLagEMA3", style=circles, linewidth=2, color=ZeroLagEMA1>=ZeroLagEMA2 ? #1eff00 : #f31010)
 plot(ZeroLagEMA1, title="ZeroLagEMA1", style=line, linewidth=2, color=olive, transp=0)
 plot(ZeroLagEMA2, title="ZeroLagEMA2", style=line, linewidth=2, color=maroon, transp=0)
 
